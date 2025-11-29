@@ -1,155 +1,80 @@
+import ast
 import gradio as gr
-from langchain_community.utilities import SQLDatabase
-from langchain_community.chat_models import ChatOllama
-from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
-from operator import itemgetter
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from database_manager import DBManager
+from llm_engine import LLMEngine
+import pandas as pd
 
-db = SQLDatabase.from_uri("sqlite:///../data/database/sakila_master.db")
+db_manager = DBManager()
+llm_engine = LLMEngine()
 
-llm = ChatOllama(model="llama2", temperature=0)
-
-def get_database_schema():
-    """Dynamically retrieve the database schema information"""
-    
-    # Get all table names
-    tables_query = """
-    SELECT name FROM sqlite_master 
-    WHERE type='table' 
-    AND name NOT LIKE 'sqlite_%'
-    ORDER BY name;
-    """
-    
-    # Get all view names
-    views_query = """
-    SELECT name FROM sqlite_master 
-    WHERE type='view'
-    ORDER BY name;
-    """
-    
+def process_query(message, history, role):
     try:
-        # Execute queries to get schema info
-        tables_result = db.run(tables_query)
-        views_result = db.run(views_query)
+        user_db = db_manager.get_db_for_session(role=role)
+        chain = llm_engine.get_chain(user_db)
+        response = chain.invoke({"question": message})
         
-        # Get table schemas
-        table_schemas = []
-        table_names = [row[0] for row in eval(tables_result)] if tables_result != "[]" else []
+        result_str = str(response['result']).lower()
         
-        for table_name in table_names:
-            # Get column information for each table
-            pragma_query = f"PRAGMA table_info({table_name});"
-            columns_info = db.run(pragma_query)
-            
-            if columns_info and columns_info != "[]":
-                table_schemas.append(f"\n{table_name}:")
-                columns = eval(columns_info)
-                for col in columns:
-                    col_name = col[1]
-                    col_type = col[2]
-                    is_pk = " (PRIMARY KEY)" if col[5] else ""
-                    table_schemas.append(f"  - {col_name}: {col_type}{is_pk}")
+        if 'error' in result_str:
+            if 'no such table' in result_str:
+                if 'revenue' in result_str or 'asset_revenue' in result_str:
+                    return f"Access denied: Your role ({role}) cannot access revenue data.", pd.DataFrame()
+                elif 'maintenance' in result_str or 'work_orders' in result_str:
+                    return f"Access denied: Your role ({role}) cannot access maintenance data.", pd.DataFrame()
+                else:
+                    return "Table not found. Please verify your query.", pd.DataFrame()
+            elif 'no such column' in result_str:
+                return "Invalid column. Please rephrase your question.", pd.DataFrame()
+            elif 'syntax error' in result_str:
+                return "SQL syntax error. Please rephrase your question.", pd.DataFrame()
+            elif 'ambiguous' in result_str:
+                return "Ambiguous column reference. Please be more specific.", pd.DataFrame()
+            else:
+                return f"Database error: {response['result']}", pd.DataFrame()
         
-        # Get view names
-        view_names = [row[0] for row in eval(views_result)] if views_result != "[]" else []
+        result_data = response['result']
+        if result_data == '[]' or result_data == '' or result_data == '()' or (isinstance(result_data, list) and len(result_data) == 0):
+            return f"No data found.\n\nSQL:\n```sql\n{response['query']}\n```", pd.DataFrame()
+
+        result_list = ast.literal_eval(response['result'])
+        df = pd.DataFrame(result_list)
         
-        # Build the schema string
-        schema_info = "Database Schema Information:\n\n"
-        schema_info += "TABLES:\n"
-        schema_info += "\n".join(table_schemas)
-        
-        if view_names:
-            schema_info += "\n\nVIEWS:\n"
-            for view in view_names:
-                schema_info += f"- {view}\n"
-        
-        return schema_info
+        output = f"SQL:\n```sql\n{response['query']}\n```\n\nResults: {len(df)} rows"
+        return output, df
         
     except Exception as e:
-        print(f"Error fetching schema: {e}")
-        # Fallback to basic schema info
-        return "Unable to fetch detailed schema. Basic table info available through standard SQL queries."
-
-SCHEMA_INFO = get_database_schema()
-print("Database Schema Retrieved:")
-print(SCHEMA_INFO)
-
-sql_generation_template = """
-You are a SQLite expert. Given a user question, create a syntactically correct SQLite query to run.
-Never query for all columns from a specific table, only ask for the relevant columns given the question.
-Pay attention to the schema of the tables below.
-
-{schema}
-
-Question: {question}
-
-Return ONLY the SQL query without any explanation, markdown formatting, or additional text.
-SQL Query:
-"""
-
-sql_generation_prompt = ChatPromptTemplate.from_template(sql_generation_template)
-
-answer_template = """
-CONTEXT: You are analyzing the Sakila sample database, which is a fictional DVD rental store database created by MySQL for educational and testing purposes. All data is sample/fictional data for learning SQL.
-
-Given the following user question, the corresponding SQL query, and the SQL result from the Sakila sample database, provide a helpful answer based on the data.
-
-If the SQL result is empty, say that you could not find any results.
-
-Question: {question}
-SQL Query: {query}
-SQL Result: {result}
-Answer:
-"""
-answer_prompt = ChatPromptTemplate.from_template(answer_template)
-
-sql_query_generation_chain = (
-    {"schema": lambda x: SCHEMA_INFO, "question": itemgetter("question")}
-    | sql_generation_prompt
-    | llm
-    | StrOutputParser()
-)
-
-execute_query_tool = QuerySQLDataBaseTool(db=db)
-
-answer_chain = (
-    RunnablePassthrough.assign(query=sql_query_generation_chain).assign(
-        result=itemgetter("query") | execute_query_tool
+        error_msg = str(e).lower()
+        if 'no such table' in error_msg:
+            if 'revenue' in error_msg or 'asset_revenue' in error_msg:
+                return f"Access denied: Your role ({role}) cannot access revenue data.", pd.DataFrame()
+            elif 'maintenance' in error_msg or 'work_orders' in error_msg:
+                return f"Access denied: Your role ({role}) cannot access maintenance data.", pd.DataFrame()
+            else:
+                return "Table not found.", pd.DataFrame()
+        else:
+            return f"Error: {str(e)}", pd.DataFrame()
+with gr.Blocks(theme=gr.themes.Soft()) as interface:
+    with gr.Row():
+        with gr.Column():
+            gr.Markdown('# Multi-DB SQL Query System')
+            gr.Markdown('Query across Sensors, Maintenance, and Revenue databases with role-based access control.')
+        role_selector = gr.Dropdown(
+            choices=["SensorViewer", "MaintenanceManager", "RevenueAnalyst", "PlantDirector"],
+            value="PlantDirector",
+            label="Select Role"
+        )
+    
+    gr.ChatInterface(
+        fn=process_query,
+        additional_inputs=[role_selector],
+        additional_outputs=[gr.Dataframe(label="Results", interactive=False)],
+        examples=[
+            ["Show me the top 5 assets with highest vibration", "PlantDirector"],
+            ["List work orders for Asset-001", "MaintenanceManager"],
+            ["Which critical assets have high revenue but high maintenance costs?", "PlantDirector"],
+            ["Show me the revenue for all assets", "SensorViewer"]
+        ]
     )
-    | answer_prompt
-    | llm
-    | StrOutputParser()
-)
 
-def process_question(question):
-    try:
-        print(f"\n--- Processing Question ---")
-        print(f"Question: {question}")
-        
-        # Generate the SQL query first
-        sql_query = sql_query_generation_chain.invoke({"question": question})
-        print(f"Generated SQL Query: {sql_query}")
-        
-        # Now run the full answer chain
-        response = answer_chain.invoke({"question": question})
-        print(f"Final Answer: {response}")
-        print("--- End Processing ---\n")
-        
-        return response
-    except Exception as e:
-        error_msg = f"An error occurred: {e}"
-        print(f"Error: {error_msg}")
-        return error_msg
-
-iface = gr.Interface(
-    fn=process_question,
-    inputs=gr.Textbox(lines=2, placeholder="Ask a question about the Sakila DVD rental database..."),
-    outputs="text",
-    title="Sakila DB Assistant 🦙 (Local with Ollama)",
-    description="Ask questions in natural language about the Sakila DVD rental database. This version runs entirely on your local machine!",
-    allow_flagging="never"
-)
-
-iface.launch()
+if __name__ == "__main__":
+    interface.launch()

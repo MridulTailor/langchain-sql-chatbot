@@ -4,27 +4,15 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-torch = "*"
-torchvision = "*"
-torchaudio = "*"
-transformers = "*"
-accelerate = "*"
 langchain = "*"
 langchain-community = "*"
-sentence-transformers = "*"
-faiss-cpu = "*"
 gradio = "*"
 pandas = "*"
 numpy = "*"
-llama-cpp-python = "*"
-chromadb = "*"
 sqlalchemy = "*"
-datasets = "*"
-peft = "*"
-bitsandbytes = "*"
+faker = "*"
 
 [dev-packages]
-ipykernel = "*"
 
 [requires]
 python_version = "3.13"
