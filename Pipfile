@@ -12,6 +12,7 @@ numpy = "*"
 sqlalchemy = "*"
 faker = "*"
 streamlit = "*"
+langchain-groq = "*"
 
 [dev-packages]
 

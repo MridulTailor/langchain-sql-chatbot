@@ -7,7 +7,14 @@ from operator import itemgetter
 
 class LLMEngine:
     def __init__(self):
-        self.llm = ChatOllama(model="llama3:latest", temperature=0)
+        import os
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        
+        if groq_api_key:
+            from langchain_groq import ChatGroq
+            self.llm = ChatGroq(model="llama3-8b-8192", temperature=0)
+        else:
+            self.llm = ChatOllama(model="llama3:latest", temperature=0)
     
 
     def get_chain(self, db):
