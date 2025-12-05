@@ -24,6 +24,9 @@ class DBManager:
         path_maint = os.path.join(project_root, 'data', 'db2_maintenance.db')
         path_revenue = os.path.join(project_root, 'data', 'db3_revenue.db')
         
+        # Layer 1: Read-Only Database Connection
+        # Note: SQLite read-only mode (?mode=ro) is difficult to enforce reliably with SQLAlchemy/pysqlite
+        # across all environments without URI issues. We will rely on Layers 2 & 3 (Validator & Prompt).
         engine = create_engine(f"sqlite:///{path_sensors}")        
         @event.listens_for(engine, "connect")
         def connect(dbapi_connection, connection_record):

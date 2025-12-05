@@ -4,13 +4,14 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-langchain = "*"
+langchain = "~=0.3.0"
 langchain-community = "*"
 gradio = "*"
 pandas = "*"
 numpy = "*"
 sqlalchemy = "*"
 faker = "*"
+streamlit = "*"
 
 [dev-packages]
 
