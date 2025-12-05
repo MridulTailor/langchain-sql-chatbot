@@ -6,13 +6,11 @@ name = "pypi"
 [packages]
 langchain = "~=0.3.0"
 langchain-community = "*"
-gradio = "*"
 pandas = "*"
 numpy = "*"
 sqlalchemy = "*"
 faker = "*"
 streamlit = "*"
-langchain-groq = "*"
 
 [dev-packages]
 
